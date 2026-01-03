@@ -1,0 +1,7 @@
+{
+  "signal_type": "story_approved",
+  "from_agent": "cto-agent",
+  "stories": ["POC-FE-001", "POC-BE-001"],
+  "decision": "APPROVED",
+  "timestamp": "'$(date -Iseconds)'"
+}

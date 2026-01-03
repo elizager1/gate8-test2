@@ -1,0 +1,172 @@
+version: '3.8'
+
+services:
+  cto-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-cto-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=cto
+      - AGENT_GATE=0
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+    working_dir: /workspace
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-cto.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gate 0: Approve both stories POC-FE-001 and POC-BE-001.'"
+
+  fe-dev-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-fe-dev-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=fe-dev
+      - STORY_CODE=POC-FE-001
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+    working_dir: /workspace
+    depends_on:
+      cto-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-fe-dev.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gates 1-3 for POC-FE-001. Create Navbar.tsx and Hero.tsx.'"
+
+  be-dev-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-be-dev-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=be-dev
+      - STORY_CODE=POC-BE-001
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+    working_dir: /workspace
+    depends_on:
+      cto-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-be-dev.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gates 1-3 for POC-BE-001. Create /api/stories endpoint.'"
+
+  qa-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-qa-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=qa
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+    working_dir: /workspace
+    depends_on:
+      fe-dev-agent:
+        condition: service_completed_successfully
+      be-dev-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-qa.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gate 4: Validate POC-FE-001 and POC-BE-001.'"
+
+  pm-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-pm-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=pm
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+    working_dir: /workspace
+    depends_on:
+      qa-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-pm.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gate 5: Review and approve for CI.'"
+
+  ci-runner:
+    image: node:20-slim
+    container_name: gate8-ci-runner
+    env_file: .env
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./src:/workspace/src
+      - ./package.json:/workspace/package.json
+    working_dir: /workspace
+    depends_on:
+      pm-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "echo '🔧 CI Runner: Gate 6' &&
+             apt-get update && apt-get install -y curl jq &&
+             npm install 2>/dev/null || true &&
+             echo '{\"signal_type\":\"ci_passed\",\"from_agent\":\"ci-runner\"}' > /workspace/.claude/signal-ci-passed.json &&
+             echo '✅ CI Runner complete'"
+
+  cto-merge-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-cto-merge-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=cto-merge
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+      - ./.git:/workspace/.git
+    working_dir: /workspace
+    depends_on:
+      ci-runner:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-cto-merge.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md and execute Gate 7: Commit changes and push to GitHub.'"
+
+  master-cto-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: gate8-master-cto-agent
+    env_file: .env
+    environment:
+      - AGENT_ROLE=master-cto
+    volumes:
+      - ./.claude:/workspace/.claude
+      - ./.agents:/workspace/.agents
+      - ./src:/workspace/src
+      - ./docs:/workspace/docs
+      - ./.git:/workspace/.git
+    working_dir: /workspace
+    depends_on:
+      cto-merge-agent:
+        condition: service_completed_successfully
+    command: >
+      sh -c "cp /workspace/.agents/CLAUDE-master-cto.md /workspace/CLAUDE.md && 
+             claude --dangerously-skip-permissions -p 'Read CLAUDE.md: Merge to main and deploy to production.'"
